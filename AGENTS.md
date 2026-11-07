@@ -2,6 +2,17 @@
 
 Read `README.md` first: the rubric math, how it drives the station, and the rules. Keep it small and readable.
 
+## Where we are
+
+Zero-shot first: the team runs Dream-1 as it is (README, "Run: zero-shot first, and watch"), steps 1–4. Help them:
+
+1. Give the exact command for each step; the person runs anything that moves the arms.
+2. Keep the table of tries (prompt, worked?, seconds, how it failed) from what they report or from
+   `data/runs/*/log.jsonl`, and suggest the next wording to try.
+3. Once a prompt works reliably, write it and its seconds into `stages.py`, run the tests, and commit.
+
+Fine-tuning comes later and only if zero-shot falls short (README, "Fine-tuning").
+
 ## Layout
 
 - `src/physical_ai_hack/stages.py`: the relay as data (`Step`: name, stage, prompt, seconds) and the rubric's

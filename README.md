@@ -33,38 +33,72 @@ git clone https://github.com/MNS1007/physical-ai-hack ~/physical-ai-hack && cd ~
 uv run python -m unittest discover tests        # no robot needed
 ```
 
-## Run
+## Run: zero-shot first, and watch
 
-**1. Check what the model sees, with nothing moving** (Dream's rule before the arms first move). In the kit's
-`dreamcli`:
+We start with Dream-1 as it is (no fine-tune), find the prompts and timings that work on the real props, and only then
+run the relay. Every command below runs **on the station**. Anything without `--dry-run` **moves the arms**: a person
+runs it, with a hand on the e-stop and everyone out of reach.
+
+**0. Log in** from your laptop. Forward the dashboard port, and the port the `--view` page prints in step 1 (reconnect
+with it added if it is not forwarded yet):
+
+```bash
+ssh -L 8080:localhost:8080 -L <view-port>:localhost:<view-port> pah@<ip>
+```
+
+**1. Dry run with the view page (the arms do not move).** Dream's rule before the arms first move:
 
 ```bash
 source ~/dream-env/bin/activate
-dreamcli robot run --task "stack the blocks on top of each other" --dry-run --view
+dreamcli robot run --task "pull the USB cable out of the power strip" --dry-run --view
 ```
 
-Open the page it prints and check: every camera under its own key, upright, natural colours, live; joints in
-radians; each gripper 0 closed to 1 open. A person confirms this, not an agent.
+Open the page it prints and check, as a person (never an agent):
 
-**2. Start the station agent** in its own tmux window (it owns the arms; close `dhk-collect` first; one program at a
-time):
+- every camera under its own name, upright, in natural colours, and changing as things move;
+- joints in radians; each gripper 0 closed to 1 open;
+- the prompt is the task.
+
+Leave it 20–30 s and watch what the model wants to do, then Ctrl+C.
+
+**2. Real runs, one task at a time.** Stop with Ctrl+C the moment it looks wrong.
 
 ```bash
-tmux new -A -s agent
+dreamcli robot run --task "pull the USB cable out of the power strip"
+dreamcli robot run --task "stack the blocks on top of each other"
+```
+
+Try 2–3 wordings per task (e.g. "unplug the USB cable", "pull the cable out of the outlet") and write each try down
+in a table like this one:
+
+| Prompt | Worked? | Seconds | How it failed (wrong object / missed grasp / stalled / knocked over) |
+|---|---|---|---|
+| pull the USB cable out of the power strip | | | |
+
+**3. Repeat the best prompts with the harness.** It is faster to iterate: no homing between prompts. The station agent
+owns the arms, so close `dhk-collect` and any `dreamcli robot run` first (one program at a time).
+
+```bash
+tmux new -A -s agent                                   # window 1: the station agent
 source ~/dream-env/bin/activate && dreamcli robot up --view
 ```
 
-**3. Drive it** from a second window. `try` and `relay` **move the arms**: a hand on the e-stop.
-
 ```bash
-cd ~/physical-ai-hack
-uv run harness status                                              # moves nothing
-uv run harness try "pull the USB cable out of the power strip" -s 45   # one prompt, then stop
-uv run harness relay --dry-run                                     # checks the station, prints the plan
-uv run harness relay                                               # the match: Enter at GO
+cd ~/physical-ai-hack                                  # window 2: the harness
+uv run harness status                                  # moves nothing
+uv run harness try "<best unplug prompt>" -s 60        # one prompt, then stop
+uv run harness try "<best stack prompt>" -s 120
 ```
 
-Ctrl+C stops the run at any time; the arms then hold where they are, under power. Each run logs to
+**4. Put the winners in `src/physical_ai_hack/stages.py`** (prompt, and seconds = typical time plus a margin), then
+the full relay:
+
+```bash
+uv run harness relay --dry-run                         # checks arms and cameras, prints the plan; moves nothing
+uv run harness relay                                   # the match: Enter at GO
+```
+
+Ctrl+C stops any run; the arms then hold where they are, under power. Each harness run logs to
 `data/runs/<time>/log.jsonl`.
 
 ## Tuning (`src/physical_ai_hack/stages.py`)
