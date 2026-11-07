@@ -1,18 +1,29 @@
 [project]
 name = "physical-ai-hack"
 version = "0.1.0"
-description = "Add your description here"
+description = "Hill Climb harness around Dream-1 for the MakerMods Physical AI Hack"
 authors = [
     { name = "MNS1007", email = "nithin.murugan10@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=2.6.0",
     "dreamlabs>=1.0.37",
+    "opencv-python-headless>=5.0.0.93",
+    "pydantic>=2.14.3",
+    "python-dotenv>=1.2.4",
 ]
 
 [project.scripts]
-physical-ai-hack = "physical_ai_hack:main"
+harness = "physical_ai_hack.live:run"
+harness-judge = "physical_ai_hack.offline:run"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+live = [
+    "livekit-api>=0.7",
+    "livekit-portal>=0.3.0 ; sys_platform == 'linux'",
+]

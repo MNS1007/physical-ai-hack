@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from physical-ai-hack!")
+"""Hill Climb harness around Dream-1: see README.md."""
