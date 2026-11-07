@@ -7,16 +7,13 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=2.6.0",
     "dreamlabs>=1.0.37",
-    "opencv-python-headless>=5.0.0.93",
-    "pydantic>=2.14.3",
+    "numpy>=2.2.6",
     "python-dotenv>=1.2.4",
 ]
 
 [project.scripts]
 harness = "physical_ai_hack.live:run"
-harness-judge = "physical_ai_hack.offline:run"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]

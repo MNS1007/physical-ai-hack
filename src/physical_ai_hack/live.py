@@ -1,6 +1,6 @@
 """The harness on the robot's LiveKit room: a Portal observer that drives `uv run dream-1-tasks` over its RPCs.
 
-    uv run --group live harness --dry-run    # judge and log only; Dream-1 is never told anything
+    uv run --group live harness --dry-run    # log only; Dream-1 is never told anything
     uv run --group live harness              # match mode: starts the clock and drives the relay
     uv run --group live harness --practice   # on stuck, hand the arms to the teleoperator (HG-DAgger data)
 
@@ -18,11 +18,9 @@ import os
 import pathlib
 import time
 
-import cv2
 import numpy as np
 from dotenv import load_dotenv
 
-from .judge import Judge
 from .relay import Config, JsonlLog, Relay
 
 IDENTITY = "harness"
@@ -73,11 +71,6 @@ class DreamLink:
         return await self.call("to_teleop")
 
 
-def rgb(frame) -> np.ndarray:
-    from livekit.portal import frame_bytes_to_numpy_rgb
-    return frame_bytes_to_numpy_rgb(frame.data, frame.width, frame.height).copy()
-
-
 async def main(args) -> None:
     from livekit.portal import Observer, ObserverConfig
 
@@ -86,21 +79,13 @@ async def main(args) -> None:
             load_dotenv(path)
     room = os.environ["LIVEKIT_ROOM"]
     cfg = ObserverConfig.from_yaml_file(pathlib.Path(args.portal) / "portal.yaml", room)
-    cameras = [c for c in args.cameras.split(",") if c]
-    missing = [c for c in cameras if c not in cfg.video_tracks]
-    if missing:
-        raise SystemExit(f"cameras {missing} are not in portal.yaml's videos: {cfg.video_tracks}")
-
     folder = pathlib.Path("data/harness_runs") / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     log = JsonlLog(folder)
     obs = Observer(cfg)
     link = DreamLink(obs)
     relay = Relay(link, Config(practice_teleop=args.practice, dry_run=args.dry_run), log=log)
-    judge = Judge()
-    print(f"[harness] judge {judge.model} (effort {judge.effort}); cameras {cameras}; logging to {folder}")
+    print(f"[harness] logging to {folder}")
 
-    judging: asyncio.Task | None = None
-    asked_at, judged_at = 0.0, -1e9
     last_pose, moved_at = None, time.monotonic()
     try:
         await obs.connect(os.environ["LIVEKIT_URL"], mint_token(IDENTITY, room))  # start the robot first
@@ -117,29 +102,11 @@ async def main(args) -> None:
                 pose = np.array([float(v) for v in state.values.values()])
                 if last_pose is None or np.abs(pose - last_pose).max() > MOVED:
                     last_pose, moved_at = pose, now
-            if judging is not None and judging.done():
-                try:
-                    verdict, took = judging.result()
-                    await relay.on_verdict(verdict, asked_at, took)
-                    print(f"[harness] {relay.step.name} {now - relay.started:5.1f}s: met={verdict.goal_met} "
-                          f"count={verdict.count} clear={verdict.gripper_clear} ({took:.1f}s) {verdict.reason}")
-                except Exception as exc:
-                    print(f"[harness] judge failed: {exc!r}")
-                judging = None
-            if judging is None and now - judged_at >= args.every and not relay.done:
-                frames = {c: rgb(f) for c in cameras if (f := obs.get_video_frame(c)) is not None}
-                if frames:
-                    asked_at = judged_at = now
-                    shot = folder / f"{now - relay.started:07.1f}.jpg"
-                    cv2.imwrite(str(shot), cv2.cvtColor(next(iter(frames.values())), cv2.COLOR_RGB2BGR))
-                    judging = asyncio.ensure_future(judge(relay.step, frames, relay.later_objects()))
             await relay.tick(now, now - moved_at)
             await asyncio.sleep(1 / TICK_HZ)
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("\n[harness] stopping; Dream-1 keeps whatever control it has (press c in its terminal to release)")
     finally:
-        if judging is not None:
-            await asyncio.gather(judging, return_exceptions=True)
         try:
             await obs.disconnect()
         finally:
@@ -150,11 +117,7 @@ def run() -> None:
     parser = argparse.ArgumentParser(description="Hill Climb relay harness around Dream-1")
     parser.add_argument("--portal", default=os.environ.get("PORTAL_DIR", "../portal-makermods"),
                         help="the portal-makermods checkout (for portal.yaml and its .env)")
-    parser.add_argument("--cameras", default=os.environ.get("HARNESS_CAMERAS", "overhead_camera"),
-                        help="comma-separated portal.yaml video tracks the judge sees")
-    parser.add_argument("--every", type=float, default=float(os.environ.get("HARNESS_JUDGE_EVERY_S", "1.5")),
-                        help="seconds between judge calls (one call in flight at a time)")
-    parser.add_argument("--dry-run", action="store_true", help="judge and log; never call Dream-1's RPCs")
+    parser.add_argument("--dry-run", action="store_true", help="log only; never call Dream-1's RPCs")
     parser.add_argument("--practice", action="store_true",
-                        help="on stuck, hand control to the teleoperator (practice only: a DQ in a match)")
+                        help="on timeout, hand control to the teleoperator (practice only: a DQ in a match)")
     asyncio.run(main(parser.parse_args()))
