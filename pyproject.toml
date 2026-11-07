@@ -1,0 +1,18 @@
+[project]
+name = "physical-ai-hack"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "MNS1007", email = "nithin.murugan10@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "dreamlabs>=1.0.37",
+]
+
+[project.scripts]
+physical-ai-hack = "physical_ai_hack:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
