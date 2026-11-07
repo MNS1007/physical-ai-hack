@@ -1,13 +1,13 @@
-"""The Hill Climb relay as data: what Dream-1 is told, and how long to give it.
+"""The Hill Climb relay as data: what Dream-1 is told, and for how long. Edit this file to tune a run.
 
-Edit this file to tune the run. Rubric (hillclimb_rubric_v2):
+Rubric (hillclimb_rubric_v2):
 - Stage 1 passes with at least one cable that started plugged into the hub unplugged (+10).
 - Stage 2 passes with a free-standing stack of at least 3 layers / 6 inches, standing 3 s after the gripper lets go (+20).
-- Touching a later stage's object before the current stage passes is a DQ, so a step's prompts never name a later
+- Touching a later stage's object before the current stage passes is a DQ, so a step's prompt never names a later
   stage's objects.
 
-There is no camera judge: a step counts as finished when Dream-1 has moved and then stayed still for `settle_s`
-(it stops when it thinks it is done). Watch the first runs and set the times from what you see.
+v0 is a timeline: each step's prompt runs for `seconds`, then the next one takes over in the same run (no homing in
+between). Set the seconds from your zero-shot tries (`harness try`).
 """
 from __future__ import annotations
 
@@ -18,37 +18,13 @@ from dataclasses import dataclass
 class Step:
     name: str
     stage: int  # rubric stage: 1 unplug, 2 stack
-    prompts: tuple[str, ...]  # Dream-1 instructions; each retry moves to the next one
-    min_s: float  # never call the step finished before this
-    settle_s: float  # arms still this long, after moving: the step is finished
-    timeout_s: float  # still not finished after this: pause and retry with the next prompt
+    prompt: str  # what Dream-1 is told
+    seconds: float  # how long it gets before the next step's prompt
 
 
 RELAY: tuple[Step, ...] = (
-    Step(
-        name="unplug",
-        stage=1,
-        prompts=(
-            "pull the USB cable out of the hub",
-            "grab the USB plug at the hub and pull it straight out",
-            "unplug the cable from the hub",
-        ),
-        min_s=8.0,
-        settle_s=4.0,
-        timeout_s=60.0,
-    ),
-    Step(
-        name="stack",
-        stage=2,
-        prompts=(
-            "stack the blocks on top of each other",
-            "pick up a block and place it on top of the stack",
-            "put one block on top of another block",
-        ),
-        min_s=20.0,
-        settle_s=4.0,  # covers the rubric's 3 s free-standing after the gripper lets go
-        timeout_s=90.0,
-    ),
+    Step(name="unplug", stage=1, prompt="pull the USB cable out of the power strip", seconds=45.0),
+    Step(name="stack", stage=2, prompt="stack the blocks on top of each other", seconds=120.0),
 )
 
 MATCH_S = 300.0  # the 5-minute match clock

@@ -1,18 +1,20 @@
 # Hill Climb harness (v0)
 
 A small harness around **Dream-1** for the MakerMods Physical AI Hack (Nov 7–8, 2026). It runs the relay from
-`hillclimb_rubric_v2` with no human input after "go": it gives Dream-1 one step at a time, retries with a new prompt
-when a step takes too long, and tells your team when the stack is done so they can call **stop**.
+`hillclimb_rubric_v2` with no human input after "go": it tells Dream-1 to unplug a cable, then to stack the blocks, in
+one run, then stops and tells your team to **call stop**.
 
 ```
- go ─▶ 1. UNPLUG ── Dream-1 moved, then still 4 s ──▶ 2. STACK ── moved, then still 4 s ──▶ pause → "CALL STOP"
-          │  "pull the USB cable out of the hub"          │  "stack the blocks on top of each other"
-          └─ 60 s and not done: pause → next prompt ─┘     └─ 90 s: pause → next prompt
+Enter at GO ─▶ unplug (45 s) ─▶ stack (120 s) ─▶ stop: arms hold ─▶ ">>> CALL STOP"
+              "pull the USB cable      "stack the blocks on
+               out of the power strip"  top of each other"
 ```
 
-There is no camera judge: a step counts as finished when Dream-1 has moved and then stayed still for `settle_s`
-(it stops when it thinks it is done). **Your stop-caller is the check**: look at the stack, and call stop once it
-has stood 3 s.
+It drives Dream's own station agent (`dreamcli robot up`) over its local HTTP API: `POST /start` with the first
+prompt, `POST /prompt` to switch the task mid-run (no homing in between), `POST /stop` at the end. Standard library
+only; no LiveKit, no extra install.
+
+Start **zero-shot** (Dream-1 as it is). If you fine-tune later, pass `--checkpoint dream-1-ft:...`.
 
 ## Why this plan (the rubric's math)
 
@@ -20,66 +22,78 @@ If both stages pass, **score = 10 + 20 + (300 − T) / 2**, where T is when your
 1 point, so extra unplugs (+5), extra blocks (+10, and a collapse loses the stack points) and balls (+5, and the
 8-ball loses the match) rarely pay. Do the two stages and stop. Reliability first, then speed.
 
-## How it fits
+## Setup (on the station)
 
-| Process | Where | What |
-|---|---|---|
-| `uv run robot` | robot host (Linux) | [portal-makermods](https://github.com/livekit-examples/portal-makermods): drives the Metal arms |
-| `uv run dream-1-tasks` | robot host | portal-makermods (branch `dc/voice`): Dream-1 with a task set over RPC |
-| `uv run --group live harness` | any Linux host in the room | **this repo**: a Portal observer that calls `dream.set_task`, `dream.resume`, `dream.pause` |
-
-The harness is an observer, like portal's task monitor: it never sends actions, so only Dream-1 moves the arms.
-Don't also run portal's `task-monitor` (it pauses Dream-1 on its own), except with `--dry-run`.
-
-## Setup
+The station is the robot's Linux computer (`ssh -L 8080:localhost:8080 pah@<ip>`). Dream's library is in
+`~/dream-env`, set up by the organizers ([Getting started](https://platform.dreamlabs.ai/docs/),
+[the kit](https://github.com/dreamlabs-co/physical-ai-hack-2026)).
 
 ```bash
-git clone https://github.com/MNS1007/physical-ai-hack && cd physical-ai-hack
-git clone -b dc/voice https://github.com/livekit-examples/portal-makermods ../portal-makermods
-uv sync --group live      # Linux only: livekit-portal has no wheel for macOS before 26
-cp .env.example .env      # the same LiveKit values portal uses (or rely on portal's .env)
+git clone https://github.com/MNS1007/physical-ai-hack ~/physical-ai-hack && cd ~/physical-ai-hack
+uv run python -m unittest discover tests        # no robot needed
 ```
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_ROOM` | — | same values as portal's peers |
-| `PORTAL_DIR` | `../portal-makermods` | portal checkout, for `portal.yaml` and its `.env` |
 
 ## Run
 
-Start `uv run robot`, then `uv run dream-1-tasks` in portal-makermods. Then:
+**1. Check what the model sees, with nothing moving** (Dream's rule before the arms first move). In the kit's
+`dreamcli`:
 
 ```bash
-uv run --group live harness --dry-run    # logs what it would do; Dream-1 is never told anything
-uv run --group live harness --practice   # on timeout, hands the arms to the teleoperator (HG-DAgger corrections)
-uv run --group live harness              # match mode: arms at rest, props placed, press Enter at "go"
+source ~/dream-env/bin/activate
+dreamcli robot run --task "stack the blocks on top of each other" --dry-run --view
 ```
 
-Each run logs to `data/harness_runs/<time>/log.jsonl`: every task, retry, finished step and the final time.
+Open the page it prints and check: every camera under its own key, upright, natural colours, live; joints in
+radians; each gripper 0 closed to 1 open. A person confirms this, not an agent.
+
+**2. Start the station agent** in its own tmux window (it owns the arms; close `dhk-collect` first; one program at a
+time):
+
+```bash
+tmux new -A -s agent
+source ~/dream-env/bin/activate && dreamcli robot up --view
+```
+
+**3. Drive it** from a second window. `try` and `relay` **move the arms**: a hand on the e-stop.
+
+```bash
+cd ~/physical-ai-hack
+uv run harness status                                              # moves nothing
+uv run harness try "pull the USB cable out of the power strip" -s 45   # one prompt, then stop
+uv run harness relay --dry-run                                     # checks the station, prints the plan
+uv run harness relay                                               # the match: Enter at GO
+```
+
+Ctrl+C stops the run at any time; the arms then hold where they are, under power. Each run logs to
+`data/runs/<time>/log.jsonl`.
 
 ## Tuning (`src/physical_ai_hack/stages.py`)
 
-1. **Prompts** (`Step.prompts`). Dream-1 is language-conditioned; wording changes behavior. The first runs first;
-   each retry moves to the next. Put the best one first.
-2. **Times.** `min_s`: never finish a step before this. `settle_s`: how long Dream-1 must be still to count as
-   done. `timeout_s`: when to give up on a prompt. Set them from your first timed runs.
-3. **Fine-tuned checkpoint.** Start `dream-1-tasks` with `DREAM_CHECKPOINT=dream-1-ft:<id>-<suffix>`.
-4. **Speed.** portal's `DREAM_MAX_JOINT_RAD_S` (default 0.5) caps joint speed: raise it only once runs are reliable.
+1. **Prompts.** Dream-1 is language-conditioned; wording changes behavior. Use `harness try` to compare a few on
+   the real props, and write down what each one does.
+2. **Seconds.** Time a few `try` runs of each prompt. Give each step its typical time plus a margin: too short and
+   the stack prompt starts while the cable is still in (touching blocks before Stage 1 passes is a DQ); too long
+   and you lose time bonus.
+3. **Fine-tuned model.** `uv run harness --checkpoint dream-1-ft:<id> relay`.
 
 ## Rules the harness keeps
 
-- After "go": no teleop, no keyboard, no human input. Match mode only calls `set_task`, `resume`, `pause`;
-  `to_teleop` exists only behind `--practice`.
-- No skipped stages: a step's prompts never name a later stage's objects.
-- The Metal arms have no brakes: the harness never parks or powers them down. At the end it pauses Dream-1 and the
-  robot holds the arms under power.
+- After "go": no teleop, no keyboard, no human input. The run is one `/start`, prompt switches and one `/stop`.
+- No skipped stages: a step's prompt never names a later stage's objects (a test checks it).
+- The arms are never parked or powered down by the harness: `/stop` leaves them holding, under power (MakerMods arms
+  have no brakes).
 
-**Known limit:** without a judge the harness cannot see whether the cable is really out before it moves on to the
-blocks. If Dream-1 settles without unplugging, the stack prompt starts anyway, and touching blocks before Stage 1
-passes is a DQ. Watch the first runs; if this happens, raise `min_s`/`settle_s` for unplug.
+**Known limit:** v0 is a timeline: it cannot see whether the cable is out before it switches to the blocks. Set the
+unplug seconds from your tries, and watch the first runs.
+
+## Fine-tuning (optional, later)
+
+Follow the kit: collect with `dhk-collect` (Quest teleop, LeRobot v2.1), then on Metal arms `tools/add_eef.py --arm
+metal` and `tools/finetune.py --arm metal`. A job is priced by steps ($200 for the default 1,000) and takes hours, so
+queue it early (evening of day 1).
 
 ## Tests
 
 ```bash
-uv run python -m unittest discover tests     # the relay with a fake Dream-1; no robot needed
+uv run python -m unittest discover tests     # the timeline with a fake station; no robot needed
 ```
