@@ -163,3 +163,15 @@ class OperatorWordsTest(unittest.TestCase):
         result = sup.match(RELAY)
         self.assertEqual(judge.asked, ["unplug"])
         self.assertEqual(result["passed"], {"unplug": False})
+
+
+class VoiceWordsTest(unittest.TestCase):
+    def test_next_and_start(self):
+        from physical_ai_hack.judge import is_start, parse_word
+
+        self.assertEqual(parse_word("go to the next task"), "done")
+        self.assertEqual(parse_word("next"), "done")
+        self.assertEqual(parse_word("fail, move on"), "fail")
+        self.assertTrue(is_start("Start."))
+        self.assertTrue(is_start("okay go"))
+        self.assertFalse(is_start("retry"))

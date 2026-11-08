@@ -90,9 +90,10 @@ class ClaudeJudge:
 
 # --- operator judges: a person decides instead of the model -------------------------------------------------------
 
-DONE_WORDS = ("done", "yes", "pass", "passed", "good", "success", "complete")
+DONE_WORDS = ("done", "yes", "pass", "passed", "good", "success", "complete", "next", "next task")
 RETRY_WORDS = ("retry", "again", "redo", "repeat", "one more")
 FAIL_WORDS = ("fail", "failed", "skip", "give up", "abort")
+START_WORDS = ("start", "go", "begin")
 
 
 def parse_word(text: str) -> str | None:
@@ -102,6 +103,27 @@ def parse_word(text: str) -> str | None:
         if any(f" {w} " in words for w in options):
             return verdict
     return None
+
+
+def is_start(text: str) -> bool:
+    """True when the operator said start / go / begin."""
+    words = " " + "".join(c if c.isalnum() else " " for c in text.lower()) + " "
+    return any(f" {w} " in words for w in START_WORDS)
+
+
+def wait_for_start(announcer, timeout_s: float | None = None) -> bool:
+    """Waits until the operator says start (or go) in the LiveKit room; False after timeout_s."""
+    announcer.livekit.drain()
+    announcer("Say start when ready", ask=True)
+    t0 = time.monotonic()
+    while timeout_s is None or time.monotonic() - t0 < timeout_s:
+        heard = announcer.livekit.heard(timeout=5.0)
+        if heard is None:
+            continue
+        print(f"[voice] heard {heard!r}")
+        if is_start(heard):
+            return True
+    return False
 
 
 def _verdict(word: str | None, heard: str, t0: float) -> Verdict:

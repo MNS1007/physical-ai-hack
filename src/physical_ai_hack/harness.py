@@ -11,6 +11,7 @@ Start the agent as `station-plus` (Dream's agent plus camera/arm routes; README)
     uv run --group livekit harness match --judge voice     # the operator says done / retry / fail (LiveKit room)
     uv run harness match --trust                           # baseline: no judge, a step ends when the arms settle
     uv run harness relay                                   # v0: fixed timeline
+    uv run --group livekit harness listen                  # voice test: prints what you say -> command; no station
 
 `try`, `eval`, `match`, `relay` MOVE THE ARMS: a hand on the emergency stop. Ctrl+C stops the run; the arms then
 hold where they are, under power. Add `--voice` for spoken announcements, `--livekit` to speak them in a LiveKit
@@ -117,6 +118,29 @@ def _judge(model: str):
     return ClaudeJudge(model=model)
 
 
+def listen() -> int:
+    """Joins the LiveKit room and prints each thing said with the command it maps to. Moves nothing."""
+    from .announce import Announcer
+    from .judge import is_start, parse_word
+
+    announce = Announcer(livekit=True)
+    try:
+        announce.livekit.load_whisper()
+        announce("Voice test. Say start, done, next, retry, or fail.")
+        print("listening; Ctrl+C to end")
+        while True:
+            heard = announce.livekit.heard(timeout=5.0)
+            if heard is None:
+                continue
+            word = parse_word(heard) or ("start" if is_start(heard) else None)
+            print(f"heard {heard!r} -> {word or '(no command)'}", flush=True)
+            announce(f"Heard {word}" if word else "Not a command")
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        announce.close()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="harness", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -131,6 +155,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--livekit", action="store_true", help="speak announcements in the LiveKit room")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="print the station's status")
+    sub.add_parser("listen", help="voice test: join the LiveKit room, print what you say and the command it means "
+                                  "(no station, nothing moves; Ctrl+C to end)")
     j = sub.add_parser("judge-now", help="Claude's verdict on the current scene (moves nothing)")
     j.add_argument("step", choices=sorted(STEPS))
     ji = sub.add_parser("judge-image", help="Claude's verdict on saved images (offline; no station)")
@@ -158,6 +184,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             STEPS[args.step], {pathlib.Path(p).stem: pathlib.Path(p).read_bytes() for p in args.images})
         print(json.dumps(verdict.__dict__, indent=2))
         return 0 if verdict.ok else 1
+
+    if args.command == "listen":
+        return listen()
 
     station = Station(args.url)
     folder = pathlib.Path("data/runs") / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -213,7 +242,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if judge:
                     print("judge on the current scene:", sup.verify(RELAY[0]))
                 return 0
-            input("Arms at rest, props placed, hand on the e-stop. Press Enter at GO ... ")
+            if args.judge == "voice":
+                from .judge import wait_for_start
+
+                wait_for_start(announce)  # "start" / "go" in the room
+            else:
+                input("Arms at rest, props placed, hand on the e-stop. Press Enter at GO ... ")
             announce("Go")
             sup.match(RELAY, trust=args.trust, extra_block=args.extra_block)
         else:
