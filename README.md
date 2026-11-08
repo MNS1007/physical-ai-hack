@@ -12,7 +12,7 @@ Enter at GO ─▶ unplug (45 s) ─▶ stack (120 s) ─▶ stop: arms hold ─
 
 It drives Dream's own station agent (`dreamcli robot up`) over its local HTTP API: `POST /start` with the first
 prompt, `POST /prompt` to switch the task mid-run (no homing in between), `POST /stop` at the end. Standard library
-only; no LiveKit, no extra install.
+only; no LiveKit, no extra install (the converter below has its own dependency group).
 
 Start **zero-shot** (Dream-1 as it is). If you fine-tune later, pass `--checkpoint dream-1-ft:...`.
 
@@ -126,8 +126,33 @@ Follow the kit: collect with `dhk-collect` (Quest teleop, LeRobot v2.1), then on
 metal` and `tools/finetune.py --arm metal`. A job is priced by steps ($200 for the default 1,000) and takes hours, so
 queue it early (evening of day 1).
 
+## Converting teleop recordings (.rrd) for fine-tuning
+
+Our VR teleop records Rerun files (`.rrd`, Rerun 0.42), **one file per episode**. `convert` turns them into the
+LeRobot v2.1 layout the Dream kit's recorder writes, so the kit's `tools/add_eef.py` and `tools/finetune.py` take the
+result unchanged. Which recorded data fills which output is in a mapping file, not in the code:
+`configs/convert/metal_right_arm.yaml` (right arm teleoperated; the left arm is held at its rest pose; cameras
+`scene`, `left_wrist`, `right_wrist`).
+
+```bash
+uv sync --group convert                                   # rerun-sdk, PyAV, pyarrow, Dream's dataset checks
+uv run --group convert convert inspect rec.rrd            # what a recording holds: entities, names, rates, ranges, cameras
+uv run --group convert convert run recs/*.rrd ~/hackathon_data/team-stack \
+    --map configs/convert/metal_right_arm.yaml --task "stack the blocks on top of each other"
+```
+
+- Each `.rrd` becomes one episode, appended to the output folder (an existing folder must match).
+- Every stream is sampled latest-at on a 30 fps clock, over the span where all of them are running.
+- A recording missing a stream the mapping needs, or shorter than 1.6 s, is skipped with the reason.
+- Frames are center-cropped to 16:9 and resized to 640x360, H.264, as the kit records.
+- At the end it runs Dream's own dataset checks on the folder.
+
+A new recorder or arm setup needs only a new mapping: `inspect` a recording, copy the YAML, change the entity and
+scalar names, units (`unit: deg`), scales and fills.
+
 ## Tests
 
 ```bash
-uv run python -m unittest discover tests     # the timeline with a fake station; no robot needed
+uv run python -m unittest tests.test_harness                      # the harness; standard library only
+uv run --group convert python -m unittest discover tests          # everything, the converter included
 ```

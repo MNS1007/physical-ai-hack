@@ -10,7 +10,18 @@ dependencies = []
 
 [project.scripts]
 harness = "physical_ai_hack.harness:run"
+convert = "physical_ai_hack.convert.cli:run"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+convert = [
+    "av>=19.0.2",
+    "dreamlabs>=1.0.37",
+    "numpy>=2.2",
+    "pyarrow>=26.0.1",
+    "pyyaml>=6.0.3",
+    "rerun-sdk>=0.42,<0.43",
+]

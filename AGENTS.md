@@ -22,6 +22,10 @@ Fine-tuning comes later and only if zero-shot falls short (README, "Fine-tuning"
 - `src/physical_ai_hack/harness.py`: the CLI (`uv run harness status|try|relay`) and `run_timeline()`, which takes
   the station, a clock and a sleep so tests can fake them.
 - `tests/test_harness.py`: the timeline with `FakeStation` and a fake clock.
+- `src/physical_ai_hack/convert/`: `.rrd` teleop recordings -> the kit's LeRobot v2.1 layout (`uv run --group convert
+  convert inspect|run`). `rrd.py` reads, `mapping.py` is the YAML schema, `episode.py` the clock/vectors/frames,
+  `writer.py` mirrors the kit's `dataset.py`. Recorder specifics live only in `configs/convert/*.yaml`.
+- `tests/test_convert.py`: mapping checks and resampling on in-memory recordings.
 
 ## Rules
 
@@ -32,10 +36,12 @@ Fine-tuning comes later and only if zero-shot falls short (README, "Fine-tuning"
 - Rubric: after "go" the harness only calls `/start` once, `/prompt`, `/status` and `/stop`. Never name a later
   stage's objects in an earlier step's prompt.
 - Never park, home or power down the arms from the harness; `/stop` leaves them holding.
-- Standard library only. Never commit `.env`, API keys, or anything under `data/`.
+- The harness is standard library only; the converter's dependencies stay in the `convert` group.
+- Never hardcode a recorder's entity names, units or order in code: put them in the mapping YAML.
+- Never commit `.env`, API keys, recordings (`.rrd`) or anything under `data/`.
 
 ## Checks
 
 ```bash
-uv run python -m unittest discover tests
+uv run --group convert python -m unittest discover tests
 ```

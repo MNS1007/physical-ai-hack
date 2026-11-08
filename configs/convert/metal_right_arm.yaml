@@ -1,0 +1,40 @@
+# metal_adamo_teleop recordings (.rrd, Rerun 0.42) -> the Dream kit's raw MakerMods layout, the one dhk-collect
+# records: [left joints x6 (rad), left gripper (mm, 100 = open), right joints x6, right gripper], cameras scene /
+# left_wrist / right_wrist at 640x360. The kit's tools/add_eef.py then adds the tool poses for fine-tuning.
+#
+# Found with `convert inspect` on metal-san-mateo-20261107-170634.rrd (2026-11-07):
+#   /right/joint_pos, /right/joint_cmd  names joint1..joint6, gripper   30 Hz; joints in radians; gripper 0..1
+#   /cameras/scene, /cameras/wrist_right (and wrist_left in earlier files)  H.264, 30 fps
+# This team teleoperates with the right arm only; the left arm is not recorded and is filled below.
+
+robot_type: metal
+fps: 30
+timeline: time
+frame: {width: 640, height: 360}
+task: "do the demonstrated task"     # override per batch: --task "stack the blocks on top of each other"
+
+parts:
+  - name: left_arm
+    names: [left_joint_0, left_joint_1, left_joint_2, left_joint_3, left_joint_4, left_joint_5]
+    # Not recorded: held at the left arm's rest pose, radians. Measured from this team's kit recording
+    # (hackathon_data/myteam-cubes, episode 1, median). Re-measure if the left arm rests elsewhere.
+    fill: [-0.5279, -0.0379, 0.0187, -0.0426, -0.3585, 0.1205]
+  - name: left_gripper
+    names: [left_gripper]
+    fill: [99.61]                    # open, mm (same source)
+  - name: right_arm
+    names: [right_joint_0, right_joint_1, right_joint_2, right_joint_3, right_joint_4, right_joint_5]
+    state: {entity: /right/joint_pos, scalars: [joint1, joint2, joint3, joint4, joint5, joint6]}
+    action: {entity: /right/joint_cmd, scalars: [joint1, joint2, joint3, joint4, joint5, joint6]}
+    unit: rad
+  - name: right_gripper
+    names: [right_gripper]
+    state: {entity: /right/joint_pos, scalars: [gripper]}
+    action: {entity: /right/joint_cmd, scalars: [gripper]}
+    scale: 100                       # recorded 0..1 (1 = open) -> the kit's mm (100 = open)
+
+cameras:
+  observation.images.scene: {entity: /cameras/scene}
+  # Keep logging this camera even with the left arm idle: the model sees it at run time. Black only if absent.
+  observation.images.left_wrist: {entity: /cameras/wrist_left, fill: black}
+  observation.images.right_wrist: {entity: /cameras/wrist_right}
