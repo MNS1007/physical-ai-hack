@@ -165,6 +165,26 @@ uv run --group judge harness judge-image stack end-scene.jpg end-left_wrist.jpg
 
 Each run logs to `data/runs/<time>/`: `log.jsonl`, every image the judge saw, every verdict, and `eval.json`.
 
+## Our fine-tuned models
+
+Both are servable (`dreamlabs/dream-1-beta` base, Metal EEF embodiment, cameras scene + both wrists). Pass one with
+`--checkpoint`:
+
+| Checkpoint | Job | Data | Steps | Final loss |
+|---|---|---|---|---|
+| `dream-1-ft:355fafe9-all-v2` | `ftj_a96b2af23d80eab1` | `all-v2`: 64 clean unplug + stack episodes (no ball) | 1000 | 0.0076 |
+| `dream-1-ft:355fafe9-unplug-v1` | `ftj_05b4a80045fb1967` | `unplug-v1`: unplug episodes 1-16 | 500 | 0.0068 |
+
+```bash
+uv run --group judge harness --checkpoint dream-1-ft:355fafe9-all-v2 eval unplug --trials 5   # MOVES THE ARMS
+uv run --group judge harness --checkpoint dream-1-ft:355fafe9-all-v2 eval stack --trials 5
+uv run --group judge harness --checkpoint dream-1-ft:355fafe9-all-v2 match
+```
+
+Compare against the base model (no `--checkpoint`) and `unplug-v1` on the same trials. Continue a model with more data:
+`finetune ... --resume-from dream-1-ft:355fafe9-all-v2` (same constant schedule, learning rate 1e-5, EEF). On macOS, if
+the SDK fails with `CERTIFICATE_VERIFY_FAILED`: `export SSL_CERT_FILE=$(uv run python -m certifi)`.
+
 ## Fine-tuning (optional, later)
 
 Follow the kit: collect with `dhk-collect` (Quest teleop, LeRobot v2.1), then on Metal arms `tools/add_eef.py --arm

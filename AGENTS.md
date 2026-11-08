@@ -11,7 +11,9 @@ Zero-shot first: the team runs Dream-1 as it is (README, "Run: zero-shot first, 
    `data/runs/*/log.jsonl`, and suggest the next wording to try.
 3. Once a prompt works reliably, write it and its seconds into `stages.py`, run the tests, and commit.
 
-Fine-tuning comes later and only if zero-shot falls short (README, "Fine-tuning").
+Two fine-tunes are ready (README, "Our fine-tuned models"): `dream-1-ft:355fafe9-all-v2` (unplug + stack, 1000
+steps) and `dream-1-ft:355fafe9-unplug-v1`. Compare each against the base model with `harness eval` before the
+match; pass the winner with `--checkpoint`.
 
 ## Layout
 
