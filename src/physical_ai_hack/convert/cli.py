@@ -133,7 +133,22 @@ def main(argv: list[str] | None = None) -> int:
                         "output folder last")
     r.add_argument("--map", required=True, help="the mapping YAML (configs/convert/...)")
     r.add_argument("--task", help="task text for these episodes (default: the mapping's)")
+    d = sub.add_parser("drop-cameras", help="copy a v2.1 dataset without some camera streams")
+    d.add_argument("source")
+    d.add_argument("target")
+    d.add_argument("cameras", nargs="+", help="video keys, e.g. observation.images.left_wrist")
     args = parser.parse_args(argv)
+    if args.command == "drop-cameras":
+        from .dataset_tools import drop_cameras
+
+        try:
+            kept = drop_cameras(pathlib.Path(args.source).expanduser(), pathlib.Path(args.target).expanduser(),
+                                args.cameras)
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            return 2
+        print(f"wrote {args.target}: {kept} episodes without {args.cameras}")
+        return 0
     if args.command == "inspect":
         for f in args.files:
             inspect(f, args.timeline)
