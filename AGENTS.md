@@ -30,6 +30,7 @@ match; pass the winner with `--checkpoint`.
 - `src/physical_ai_hack/judge.py`: `ClaudeJudge` (structured verdict), `VoiceJudge`, `KeyboardJudge`, `parse_word`.
 - `src/physical_ai_hack/announce.py`: console, local TTS, LiveKit room (speech out, operator voice in via Whisper).
 - `tests/test_supervisor.py`: the supervisor with a fake station, scripted judge, fake clock.
+- `tools/dimos_judge.py`: Dimensional (dimos.models.vl) second opinion, own env via inline deps. `LAPTOP.md`: run from a laptop.
 - `src/physical_ai_hack/convert/`: `.rrd` teleop recordings -> the kit's LeRobot v2.1 layout (`uv run --group convert
   convert inspect|run`). `rrd.py` reads, `mapping.py` is the YAML schema, `episode.py` the clock/vectors/frames,
   `writer.py` mirrors the kit's `dataset.py`. Recorder specifics live only in `configs/convert/*.yaml`.
