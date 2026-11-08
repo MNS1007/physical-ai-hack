@@ -92,7 +92,8 @@ class ClaudeJudge:
 
 DONE_WORDS = ("done", "yes", "pass", "passed", "good", "success", "complete", "next", "next task")
 RETRY_WORDS = ("retry", "again", "redo", "repeat", "one more")
-FAIL_WORDS = ("fail", "failed", "skip", "give up", "abort")
+FAIL_WORDS = ("fail", "failed", "skip", "give up", "abort", "stop")
+COMMAND_MAX_WORDS = 4
 START_WORDS = ("start", "go", "begin")
 
 
@@ -103,6 +104,23 @@ def parse_word(text: str) -> str | None:
         if any(f" {w} " in words for w in options):
             return verdict
     return None
+
+
+def last_phrase(text: str) -> str:
+    """The operator's command as heard in a noisy room: the last phrase (after the last . ? ! ,), and only when it
+    is short (COMMAND_MAX_WORDS); "" otherwise, so a keyword inside someone's sentence is not a command."""
+    import re
+
+    phrases = [p.strip() for p in re.split(r"[.?!,;]+", text) if p.strip()]
+    if not phrases:
+        return ""
+    words = "".join(c if c.isalnum() or c.isspace() else " " for c in phrases[-1]).split()
+    return " ".join(words) if len(words) <= COMMAND_MAX_WORDS else ""
+
+
+def parse_spoken(text: str) -> str | None:
+    """parse_word() on the last short phrase only: what the voice judge acts on."""
+    return parse_word(last_phrase(text))
 
 
 def is_start(text: str) -> bool:
@@ -121,7 +139,7 @@ def wait_for_start(announcer, timeout_s: float | None = None) -> bool:
         if heard is None:
             continue
         print(f"[voice] heard {heard!r}")
-        if is_start(heard):
+        if is_start(last_phrase(heard)):
             return True
     return False
 
@@ -168,7 +186,7 @@ class VoiceJudge:
             heard = self.announcer.livekit.heard(timeout=left)
             if heard is None:
                 break
-            word = parse_word(heard)
+            word = parse_spoken(heard)
             print(f"[voice] heard {heard!r} -> {word}")
             if word:
                 return _verdict(word, heard, t0)

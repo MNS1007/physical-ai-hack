@@ -121,7 +121,7 @@ def _judge(model: str):
 def listen() -> int:
     """Joins the LiveKit room and prints each thing said with the command it maps to. Moves nothing."""
     from .announce import Announcer
-    from .judge import is_start, parse_word
+    from .judge import is_start, last_phrase, parse_spoken
 
     announce = Announcer(livekit=True)
     try:
@@ -132,7 +132,7 @@ def listen() -> int:
             heard = announce.livekit.heard(timeout=5.0)
             if heard is None:
                 continue
-            word = parse_word(heard) or ("start" if is_start(heard) else None)
+            word = parse_spoken(heard) or ("start" if is_start(last_phrase(heard)) else None)
             print(f"heard {heard!r} -> {word or '(no command)'}", flush=True)
             announce(f"Heard {word}" if word else "Not a command")
     except KeyboardInterrupt:

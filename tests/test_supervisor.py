@@ -169,9 +169,28 @@ class VoiceWordsTest(unittest.TestCase):
     def test_next_and_start(self):
         from physical_ai_hack.judge import is_start, parse_word
 
-        self.assertEqual(parse_word("go to the next task"), "done")
+        self.assertEqual(parse_word("go to the next task"), "done")  # keyboard: no length limit
         self.assertEqual(parse_word("next"), "done")
         self.assertEqual(parse_word("fail, move on"), "fail")
         self.assertTrue(is_start("Start."))
         self.assertTrue(is_start("okay go"))
         self.assertFalse(is_start("retry"))
+
+
+class NoisyRoomTest(unittest.TestCase):
+    def test_only_the_last_short_phrase_counts(self):
+        from physical_ai_hack.judge import is_start, last_phrase, parse_spoken
+
+        heard = [  # from the venue, 2026-11-08
+            ("I'm guessing it's not like, it's not my right.  Start.", "start"),
+            ("How can it feel?  Done.  .  .  .  .", "done"),
+            ("I will be doing next.  I'll be doing the next.  I'm the video number.  Take sample.  Take second.", None),
+            ("It's like, I would really say it's late, like,  you know, it's possible.  Stop.", "fail"),
+            ("Retry.", "retry"),
+            ("Next task.", "done"),
+            ("go to the next task", None),  # 5 words: too long, ignored; say "next task"
+            ("and we had really, like, three times.  And, um,", None),
+        ]
+        for text, want in heard:
+            got = parse_spoken(text) or ("start" if is_start(last_phrase(text)) else None)
+            self.assertEqual(got, want, text)
