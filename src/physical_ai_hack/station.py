@@ -59,3 +59,24 @@ class Station:
 
     def stop(self) -> dict[str, Any]:
         return self._call("POST", "/stop")
+
+    # The routes below exist only when the agent runs as `station-plus` (station_plus.py).
+
+    def arms(self) -> dict[str, Any]:
+        """Each arm's joint positions (rad) and gripper (0-1)."""
+        return self._call("GET", "/arms")
+
+    def cameras(self) -> list[str]:
+        return list(self._call("GET", "/frames")["cameras"])
+
+    def frame(self, camera: str) -> bytes:
+        """The camera's latest frame as JPEG bytes."""
+        request = urllib.request.Request(f"{self.url}/frame/{camera}.jpg")
+        try:
+            with urllib.request.urlopen(request, timeout=10) as answer:
+                return answer.read()
+        except urllib.error.HTTPError as error:
+            raise StationError(f"GET /frame/{camera}.jpg: HTTP {error.code}; is the agent running as station-plus?") \
+                from None
+        except urllib.error.URLError as error:
+            raise StationError(f"cannot reach the station agent at {self.url} ({error.reason})") from None

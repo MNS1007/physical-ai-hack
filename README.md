@@ -120,6 +120,49 @@ Ctrl+C stops any run; the arms then hold where they are, under power. Each harne
 **Known limit:** v0 is a timeline: it cannot see whether the cable is out before it switches to the blocks. Set the
 unplug seconds from your tries, and watch the first runs.
 
+## Harness v1: rollouts, and the match supervised by a judge
+
+Dream-1 never says it is done. The harness ends an attempt when the arms have moved and then stayed still
+(`settle_s`, after `min_s`) or at `timeout_s`, stops the run (the arms hold), and asks a **judge** whether the step is
+done. Steps, prompts (the training labels), judge questions and times are in `src/physical_ai_hack/stages.py`.
+
+| Command | What |
+|---|---|
+| `harness eval unplug --trials 10 [--checkpoint dream-1-ft:...]` | per-task rollouts: you reset the scene, it runs one attempt, the judge scores it; success rate + time. Run per model to see whether the fine-tune helped |
+| `harness match` | the rubric relay, **supervised**: each step retried until the judge passes it (≤ `max_attempts`, within `budget_s`); the cubes are never touched unless the unplug passed (DQ rule); "Call stop" at the end. `--extra-block` tries a 4th cube when the judge says it can |
+| `harness match --trust` | baseline: no judge, no retries; a step ends when the arms settle |
+
+Judges (`--judge`): `claude` (default; `--judge-model claude-sonnet-5-5` for speed), `voice` (the operator says
+**done**, **retry** or **fail** in the LiveKit room; Whisper transcribes it on the station; the rubric says organizers
+"will consider allowing voice input", so ask first), `keys` (typed, for testing).
+
+Announcements: `--voice` speaks them on the machine; `--livekit` speaks them in a LiveKit room (`LIVEKIT_URL`,
+`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_ROOM`=hill-climb in `.env`) and sends each as a data message;
+join the room from a browser to hear "Task 1 unplug done", "All tasks done. Call stop."
+
+### Run it
+
+```bash
+# on the station, window 1: Dream's agent plus camera/arm routes (instead of `dreamcli robot up`)
+uv sync --group convert --group judge --group livekit
+uv run --group convert station-plus --config ~/.dreamlabs/station.yaml
+# window 2 (ANTHROPIC_API_KEY in .env)
+curl -s localhost:8091/frames; curl -s localhost:8091/arms                 # routes work; nothing moves
+uv run --group judge harness judge-now unplug                              # verdict on the scene now; nothing moves
+uv run --group judge harness match --dry-run                               # checks + one verdict; nothing moves
+uv run --group judge harness eval unplug --trials 3                        # MOVES THE ARMS
+uv run --group judge --group livekit harness --livekit match               # MOVES THE ARMS
+```
+
+Calibrate the judge offline first (no station; a few cents): last frames of finished demos should be "done", first
+frames "not done":
+
+```bash
+uv run --group judge harness judge-image stack end-scene.jpg end-left_wrist.jpg
+```
+
+Each run logs to `data/runs/<time>/`: `log.jsonl`, every image the judge saw, every verdict, and `eval.json`.
+
 ## Fine-tuning (optional, later)
 
 Follow the kit: collect with `dhk-collect` (Quest teleop, LeRobot v2.1), then on Metal arms `tools/add_eef.py --arm

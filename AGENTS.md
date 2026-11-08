@@ -22,6 +22,12 @@ Fine-tuning comes later and only if zero-shot falls short (README, "Fine-tuning"
 - `src/physical_ai_hack/harness.py`: the CLI (`uv run harness status|try|relay`) and `run_timeline()`, which takes
   the station, a clock and a sleep so tests can fake them.
 - `tests/test_harness.py`: the timeline with `FakeStation` and a fake clock.
+- `src/physical_ai_hack/station_plus.py`: Dream's agent (`robots.station.main`) with `GET /frame/<cam>.jpg`, `/frames`,
+  `/arms` added (read-only, from `controller.frames()` / `arm_states()`).
+- `src/physical_ai_hack/supervisor.py`: attempts (settle/timeout), `match()` (supervised / trust), `evaluate()`.
+- `src/physical_ai_hack/judge.py`: `ClaudeJudge` (structured verdict), `VoiceJudge`, `KeyboardJudge`, `parse_word`.
+- `src/physical_ai_hack/announce.py`: console, local TTS, LiveKit room (speech out, operator voice in via Whisper).
+- `tests/test_supervisor.py`: the supervisor with a fake station, scripted judge, fake clock.
 - `src/physical_ai_hack/convert/`: `.rrd` teleop recordings -> the kit's LeRobot v2.1 layout (`uv run --group convert
   convert inspect|run`). `rrd.py` reads, `mapping.py` is the YAML schema, `episode.py` the clock/vectors/frames,
   `writer.py` mirrors the kit's `dataset.py`. Recorder specifics live only in `configs/convert/*.yaml`.
@@ -33,10 +39,12 @@ Fine-tuning comes later and only if zero-shot falls short (README, "Fine-tuning"
   `dhk-collect` without `--dry-run`, or anything else that moves the arms yourself: give the person the command.
 - Before the arms first move on a station, the person checks Dream's `--dry-run --view` page. Never confirm it for
   them and never run `python -m dream.input_check`.
-- Rubric: after "go" the harness only calls `/start` once, `/prompt`, `/status` and `/stop`. Never name a later
+- Rubric: after "go" the harness only calls `/start`, `/prompt`, `/status`, `/stop` and the read-only routes. Never name a later
   stage's objects in an earlier step's prompt.
 - Never park, home or power down the arms from the harness; `/stop` leaves them holding.
-- The harness is standard library only; the converter's dependencies stay in the `convert` group.
+- The core (`harness status/try/relay/match --trust`) is standard library only; extras live in dependency groups:
+  `convert`, `judge` (anthropic), `livekit` (livekit, faster-whisper).
+- A judge that cannot answer is never a pass; the supervised match never starts the cubes before the unplug passed.
 - Never hardcode a recorder's entity names, units or order in code: put them in the mapping YAML.
 - Never commit `.env`, API keys, recordings (`.rrd`) or anything under `data/`.
 
