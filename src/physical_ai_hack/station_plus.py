@@ -35,31 +35,42 @@ def install() -> None:
 
     def do_GET(self) -> None:  # noqa: N802 - http.server's name
         route = self.path.split("?", 1)[0]
-        controller = self.server.api.controller
-        if route == "/frames":
-            self._reply(200, {"cameras": sorted(controller.frames())})
+        if route not in ("/frames", "/arms") and not (route.startswith("/frame/") and route.endswith(".jpg")):
+            original(self)
             return
-        if route == "/arms":
-            arms = {name: {"positions_rad": [float(v) for v in s.positions_rad], "gripper": float(s.gripper)}
-                    for name, s in controller.arm_states().items()}
-            self._reply(200, arms)
-            return
-        if route.startswith("/frame/") and route.endswith(".jpg"):
-            name = route[len("/frame/"):-len(".jpg")]
-            frame = controller.frames().get(name)
-            if frame is None:
-                self._reply(404, {"error": f"no frame from camera {name!r}; cameras: {sorted(controller.frames())}"})
-                return
-            body = _jpeg(frame.data)
-            self.send_response(200)
-            self.send_header("Content-Type", "image/jpeg")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-        original(self)
+        try:
+            _serve(self, route, self.server.api.controller)
+        except Exception as error:  # noqa: BLE001 - answer, never drop the connection
+            self._reply(500, {"error": f"{type(error).__name__}: {error}"})
 
     handler.do_GET = do_GET
+
+
+def _frames(controller) -> dict:
+    frames = controller.frames  # a property on Dream's StationController
+    return frames() if callable(frames) else frames
+
+
+def _serve(self, route: str, controller) -> None:
+    if route == "/frames":
+        self._reply(200, {"cameras": sorted(_frames(controller))})
+        return
+    if route == "/arms":
+        arms = {name: {"positions_rad": [float(v) for v in s.positions_rad], "gripper": float(s.gripper)}
+                for name, s in controller.arm_states().items()}
+        self._reply(200, arms)
+        return
+    name = route[len("/frame/"):-len(".jpg")]
+    frame = _frames(controller).get(name)
+    if frame is None:
+        self._reply(404, {"error": f"no frame from camera {name!r}; cameras: {sorted(_frames(controller))}"})
+        return
+    body = _jpeg(frame.data)
+    self.send_response(200)
+    self.send_header("Content-Type", "image/jpeg")
+    self.send_header("Content-Length", str(len(body)))
+    self.end_headers()
+    self.wfile.write(body)
 
 
 def main() -> None:
