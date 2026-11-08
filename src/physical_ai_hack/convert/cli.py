@@ -72,11 +72,34 @@ def validate(out: pathlib.Path, m: mp.Mapping) -> bool:
     return report.ok
 
 
-def run_files(files: list[str], out: pathlib.Path, m: mp.Mapping, task: str | None) -> int:
+def expand(inputs: list[str]) -> list[pathlib.Path]:
+    """Each input as recordings and datasets: a .rrd file, a LeRobot dataset folder (has meta/info.json), or a folder
+    of .rrd files (sorted by name, which is by time for timestamped names)."""
+    out = []
+    for raw in inputs:
+        path = pathlib.Path(raw).expanduser()
+        if path.is_dir() and not (path / "meta" / "info.json").exists():
+            out += sorted(path.glob("*.rrd"))
+        else:
+            out.append(path)
+    return out
+
+
+def run_files(inputs: list[pathlib.Path], out: pathlib.Path, m: mp.Mapping, task: str | None) -> int:
+    """Converts each .rrd into one episode and copies each LeRobot v2.1 dataset's episodes, into one dataset."""
     writer = Writer(out, robot_type=m.robot_type, fps=m.fps, names=m.vector_names,
                     video_keys=[c.key for c in m.cameras], width=m.width, height=m.height)
     converted = 0
-    for path in files:
+    for path in inputs:
+        if path.is_dir():
+            try:
+                added = writer.append_dataset(path, task)
+            except DatasetError as error:
+                print(f"SKIP {path}: {error}")
+                continue
+            converted += len(added)
+            print(f"episodes {added[0]}-{added[-1]}: copied from dataset {path}" if added else f"{path}: no episodes")
+            continue
         try:
             rec = rrd.read(path, m.timeline)
             plan = ep.plan(rec, m)
@@ -94,7 +117,7 @@ def run_files(files: list[str], out: pathlib.Path, m: mp.Mapping, task: str | No
         print(f"episode {index}: {path} -> {len(plan.ticks)} frames ({len(plan.ticks) / m.fps:.1f} s); "
               f"trimmed {plan.head_s:.1f} s head, {plan.tail_s:.1f} s tail"
               + (f"; filled {plan.filled}" if plan.filled else "") + (f"; {stale}" if stale else ""))
-    print(f"{converted} of {len(files)} recordings converted into {out}")
+    print(f"{converted} episodes added to {out} (now {writer.info['total_episodes']})")
     return converted
 
 
@@ -104,8 +127,10 @@ def main(argv: list[str] | None = None) -> int:
     i = sub.add_parser("inspect", help="list what a recording holds: entities, names, rates, ranges, cameras")
     i.add_argument("files", nargs="+")
     i.add_argument("--timeline", default="time")
-    r = sub.add_parser("run", help="convert recordings (one .rrd = one episode) into a LeRobot v2.1 folder")
-    r.add_argument("files", nargs="+", help=".rrd files, then the output folder last")
+    r = sub.add_parser("run", help="merge recordings (one .rrd = one episode) and kit datasets into one LeRobot v2.1 folder")
+    r.add_argument("files", nargs="+",
+                   help=".rrd files, folders of .rrd files and/or LeRobot v2.1 datasets (dhk-collect), then the "
+                        "output folder last")
     r.add_argument("--map", required=True, help="the mapping YAML (configs/convert/...)")
     r.add_argument("--task", help="task text for these episodes (default: the mapping's)")
     args = parser.parse_args(argv)
@@ -122,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"mapping {args.map}: {error}", file=sys.stderr)
         return 2
     try:
-        converted = run_files(files, pathlib.Path(out).expanduser(), m, args.task)
+        converted = run_files(expand(files), pathlib.Path(out).expanduser(), m, args.task)
     except DatasetError as error:
         print(f"output {out}: {error}", file=sys.stderr)
         return 2

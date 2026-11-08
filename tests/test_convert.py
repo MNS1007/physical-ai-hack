@@ -98,3 +98,26 @@ class EpisodeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AppendTest(unittest.TestCase):
+    def test_refuses_another_lerobot_version_or_layout(self):
+        import json
+        import pathlib
+        import tempfile
+
+        from physical_ai_hack.convert.writer import DatasetError, Writer
+
+        m = mapping()
+        with tempfile.TemporaryDirectory() as tmp:
+            src = pathlib.Path(tmp) / "src"
+            (src / "meta").mkdir(parents=True)
+            writer = Writer(pathlib.Path(tmp) / "out", robot_type="metal", fps=m.fps, names=m.vector_names,
+                            video_keys=[c.key for c in m.cameras], width=m.width, height=m.height)
+            (src / "meta" / "info.json").write_text(json.dumps({"codebase_version": "v3.0"}))
+            with self.assertRaises(DatasetError):
+                writer.append_dataset(src)
+            info = dict(writer.info, fps=15)
+            (src / "meta" / "info.json").write_text(json.dumps(info))
+            with self.assertRaises(DatasetError):
+                writer.append_dataset(src)

@@ -120,66 +120,110 @@ class Writer:
                          "video_path": VIDEO_PATH, "features": self.features}
             self.tasks = {}
 
-    def _check(self, info: dict[str, Any]) -> None:
+    def _check(self, info: dict[str, Any], where: pathlib.Path | None = None) -> None:
+        """Refuses a dataset laid out another way than this writer writes: version, fps, widths, cameras, sizes."""
+        where = where or self.root
         if info.get("codebase_version") != CODEBASE_VERSION:
-            raise DatasetError(f"{self.root} is LeRobot {info.get('codebase_version')}, not {CODEBASE_VERSION}")
+            raise DatasetError(f"{where} is LeRobot {info.get('codebase_version')}, not {CODEBASE_VERSION}")
         if info.get("fps") != self.fps:
-            raise DatasetError(f"{self.root} is at {info.get('fps')} fps; this mapping writes {self.fps}")
+            raise DatasetError(f"{where} is at {info.get('fps')} fps; the mapping writes {self.fps}")
         for key, feature in self.features.items():
             if info["features"].get(key, {}).get("shape") != feature["shape"]:
-                raise DatasetError(f"{self.root}: {key} is {info['features'].get(key)}, the mapping writes {feature}")
+                raise DatasetError(f"{where}: {key} is shaped {info['features'].get(key, {}).get('shape')}; "
+                                   f"the mapping writes {feature['shape']}")
         recorded = sorted(k for k, v in info["features"].items() if v.get("dtype") == "video")
         if recorded != sorted(self.video_keys):
-            raise DatasetError(f"{self.root} has cameras {recorded}; the mapping writes {sorted(self.video_keys)}")
+            raise DatasetError(f"{where} has cameras {recorded}; the mapping writes {sorted(self.video_keys)}")
 
     def add(self, task: str, state: np.ndarray, action: np.ndarray,
             cameras: dict[str, Iterable[np.ndarray]]) -> int:
         """Encodes the cameras and writes one episode; returns its index. Nothing lands in the dataset on failure."""
-        index = int(self.info["total_episodes"])
-        chunk = index // CHUNKS_SIZE
-        frames = len(state)
-        first = int(self.info["total_frames"])
-        new_task = task not in self.tasks
-        task_index = self.tasks.setdefault(task, len(self.tasks))
-        self.root.mkdir(parents=True, exist_ok=True)
-        scratch = pathlib.Path(tempfile.mkdtemp(dir=self.root, prefix=".episode-"))
+        scratch = self._scratch()
         try:
-            stats: dict[str, Any] = {}
-            for key in self.video_keys:
-                stats[key] = encode(scratch / f"{key}.mp4", cameras[key], self.fps, *self.size)
-            frame_index = np.arange(frames, dtype=np.int64)
+            stats = {key: encode(scratch / f"{key}.mp4", cameras[key], self.fps, *self.size)
+                     for key in self.video_keys}
+            frame_index = np.arange(len(state), dtype=np.int64)
             timestamps = (frame_index / self.fps).astype(np.float32)
             table = pa.table({
                 "observation.state": pa.FixedSizeListArray.from_arrays(pa.array(state.reshape(-1)), state.shape[1]),
                 "action": pa.FixedSizeListArray.from_arrays(pa.array(action.reshape(-1)), action.shape[1]),
                 "timestamp": pa.array(timestamps),
                 "frame_index": pa.array(frame_index),
-                "episode_index": pa.array(np.full(frames, index, dtype=np.int64)),
-                "index": pa.array(np.arange(first, first + frames, dtype=np.int64)),
-                "task_index": pa.array(np.full(frames, task_index, dtype=np.int64)),
             })
-            stats.update({
-                "observation.state": vector_stats(state), "action": vector_stats(action),
-                "timestamp": scalar_stats(timestamps), "frame_index": scalar_stats(frame_index),
-                "episode_index": scalar_stats(np.full(frames, index)),
-                "index": scalar_stats(np.arange(first, first + frames)),
-                "task_index": scalar_stats(np.full(frames, task_index)),
-            })
+            stats.update({"observation.state": vector_stats(state), "action": vector_stats(action),
+                          "timestamp": scalar_stats(timestamps), "frame_index": scalar_stats(frame_index)})
+            return self._commit(scratch, table, stats, task)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+    def append_dataset(self, source: pathlib.Path, task: str | None = None) -> list[int]:
+        """Copies every episode of another LeRobot v2.1 dataset of the same layout (e.g. one dhk-collect recorded)
+        into this one, renumbered; returns the new indices. Refuses a dataset recorded another way. `task`, when given,
+        replaces every episode's task text."""
+        info_path = source / "meta" / "info.json"
+        if not info_path.exists():
+            raise DatasetError(f"{source} is not a LeRobot dataset (no meta/info.json)")
+        info = json.loads(info_path.read_text())
+        if info.get("codebase_version") != CODEBASE_VERSION:
+            raise DatasetError(f"{source} is LeRobot {info.get('codebase_version')}; only {CODEBASE_VERSION} is read")
+        self._check(info, source)
+        meta = source / "meta"
+        episodes = [json.loads(line) for line in (meta / "episodes.jsonl").read_text().splitlines() if line.strip()]
+        stats_rows = [json.loads(line) for line in (meta / "episodes_stats.jsonl").read_text().splitlines() if line]
+        stats_by = {int(r["episode_index"]): r["stats"] for r in stats_rows}
+        tasks = {int(r["task_index"]): r["task"] for r in
+                 (json.loads(line) for line in (meta / "tasks.jsonl").read_text().splitlines() if line.strip())}
+        added = []
+        for row in episodes:
+            old = int(row["episode_index"])
+            chunk = old // int(info.get("chunks_size", CHUNKS_SIZE))
+            table = pq.read_table(source / info["data_path"].format(episode_chunk=chunk, episode_index=old))
+            text = task or (tasks[int(table["task_index"][0].as_py())] if "task_index" in table.column_names
+                            else row["tasks"][0])
+            table = table.select(["observation.state", "action", "timestamp", "frame_index"])
+            scratch = self._scratch()
+            try:
+                for key in self.video_keys:
+                    shutil.copy2(source / info["video_path"].format(episode_chunk=chunk, video_key=key,
+                                                                    episode_index=old), scratch / f"{key}.mp4")
+                stats = {k: v for k, v in stats_by[old].items() if k not in ("episode_index", "index", "task_index")}
+                added.append(self._commit(scratch, table, stats, text))
+            finally:
+                shutil.rmtree(scratch, ignore_errors=True)
+        return added
+
+    def _scratch(self) -> pathlib.Path:
+        self.root.mkdir(parents=True, exist_ok=True)
+        return pathlib.Path(tempfile.mkdtemp(dir=self.root, prefix=".episode-"))
+
+    def _commit(self, scratch: pathlib.Path, table: pa.Table, stats: dict[str, Any], task: str) -> int:
+        """Numbers the episode, moves its parquet and videos in (all written first), and updates meta/."""
+        index = int(self.info["total_episodes"])
+        chunk = index // CHUNKS_SIZE
+        frames = table.num_rows
+        first = int(self.info["total_frames"])
+        new_task = task not in self.tasks
+        task_index = self.tasks.setdefault(task, len(self.tasks))
+        table = table.append_column("episode_index", pa.array(np.full(frames, index, dtype=np.int64)))
+        table = table.append_column("index", pa.array(np.arange(first, first + frames, dtype=np.int64)))
+        table = table.append_column("task_index", pa.array(np.full(frames, task_index, dtype=np.int64)))
+        stats = {**stats, "episode_index": scalar_stats(np.full(frames, index)),
+                 "index": scalar_stats(np.arange(first, first + frames)),
+                 "task_index": scalar_stats(np.full(frames, task_index))}
+        try:
             pq.write_table(table, scratch / "data.parquet")
             moves = [(scratch / f"{key}.mp4",
                       self.root / VIDEO_PATH.format(episode_chunk=chunk, video_key=key, episode_index=index))
                      for key in self.video_keys]
             moves.append((scratch / "data.parquet",
                           self.root / DATA_PATH.format(episode_chunk=chunk, episode_index=index)))
-            for source, target in moves:  # everything is written before anything moves in
+            for source, target in moves:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(source, target)
         except BaseException:
             if new_task:
                 del self.tasks[task]
             raise
-        finally:
-            shutil.rmtree(scratch, ignore_errors=True)
         meta = self.root / "meta"
         meta.mkdir(parents=True, exist_ok=True)
         if new_task:
