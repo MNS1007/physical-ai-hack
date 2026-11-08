@@ -85,7 +85,25 @@ def expand(inputs: list[str]) -> list[pathlib.Path]:
     return out
 
 
-def run_files(inputs: list[pathlib.Path], out: pathlib.Path, m: mp.Mapping, task: str | None) -> int:
+def parse_labels(path: str) -> dict[int, str]:
+    """A labels YAML: task text -> episodes, as a list and/or ranges, e.g.
+    `"pull the USB cable out of the power strip": [2-11, 14]`. Every episode may appear once."""
+    import yaml
+
+    out: dict[int, str] = {}
+    for text, spec in yaml.safe_load(pathlib.Path(path).read_text()).items():
+        items = spec if isinstance(spec, list) else [spec]
+        for item in items:
+            lo, _, hi = str(item).partition("-")
+            for ep_index in range(int(lo), int(hi or lo) + 1):
+                if ep_index in out:
+                    raise ValueError(f"episode {ep_index} is labelled twice ({out[ep_index]!r} and {text!r})")
+                out[ep_index] = str(text)
+    return out
+
+
+def run_files(inputs: list[pathlib.Path], out: pathlib.Path, m: mp.Mapping, task: str | None,
+              labels: dict[int, str] | None = None) -> int:
     """Converts each .rrd into one episode and copies each LeRobot v2.1 dataset's episodes, into one dataset."""
     writer = Writer(out, robot_type=m.robot_type, fps=m.fps, names=m.vector_names,
                     video_keys=[c.key for c in m.cameras], width=m.width, height=m.height)
@@ -93,7 +111,7 @@ def run_files(inputs: list[pathlib.Path], out: pathlib.Path, m: mp.Mapping, task
     for path in inputs:
         if path.is_dir():
             try:
-                added = writer.append_dataset(path, task)
+                added = writer.append_dataset(path, task, labels)
             except DatasetError as error:
                 print(f"SKIP {path}: {error}")
                 continue
@@ -133,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
                         "output folder last")
     r.add_argument("--map", required=True, help="the mapping YAML (configs/convert/...)")
     r.add_argument("--task", help="task text for these episodes (default: the mapping's)")
+    r.add_argument("--labels", help="YAML of task text -> episode numbers of the input dataset; only those are copied")
     d = sub.add_parser("drop-cameras", help="copy a v2.1 dataset without some camera streams")
     d.add_argument("source")
     d.add_argument("target")
@@ -158,13 +177,14 @@ def main(argv: list[str] | None = None) -> int:
     *files, out = args.files
     try:
         m = mp.load(args.map)
-    except (mp.MappingError, KeyError, TypeError) as error:
+    except (mp.MappingError, KeyError, TypeError, ValueError) as error:
         print(f"mapping {args.map}: {error}", file=sys.stderr)
         return 2
     try:
-        converted = run_files(expand(files), pathlib.Path(out).expanduser(), m, args.task)
-    except DatasetError as error:
-        print(f"output {out}: {error}", file=sys.stderr)
+        converted = run_files(expand(files), pathlib.Path(out).expanduser(), m, args.task,
+                              parse_labels(args.labels) if args.labels else None)
+    except (DatasetError, ValueError) as error:
+        print(f"{error}", file=sys.stderr)
         return 2
     if converted == 0:
         return 1
