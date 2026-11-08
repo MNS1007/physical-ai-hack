@@ -23,7 +23,7 @@ class Step:
 
 
 RELAY: tuple[Step, ...] = (
-    Step(name="unplug", stage=1, prompt="unplug the usb cables", seconds=45.0),
+    Step(name="unplug", stage=1, prompt="unplug the usb cable", seconds=45.0),
     Step(name="stack", stage=2, prompt="stack the blocks on top of each other", seconds=120.0),
 )
 
