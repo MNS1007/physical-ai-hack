@@ -175,19 +175,34 @@ class _LiveKit:
                         self._segments.put(np.concatenate(speech).astype(np.float32) / 32768)
                     speech, silence_ms, voiced_ms = [], 0, 0
 
+    _model = None
+
+    def load_whisper(self) -> None:
+        """Loads the speech-to-text model (downloads it the first time); raises if it cannot."""
+        if self._model is None:
+            from faster_whisper import WhisperModel
+
+            name = os.environ.get("WHISPER_MODEL", "base.en")
+            print(f"[voice] loading Whisper {name} (first time: downloads it)")
+            self._model = WhisperModel(name, device="cpu", compute_type="int8")
+        self._start_transcriber()
+
     def _start_transcriber(self) -> None:
         if self._segments is not None:
             return
         self._segments, self._heard = queue.Queue(), queue.Queue()
 
         def work() -> None:
-            from faster_whisper import WhisperModel
-
-            model = WhisperModel(os.environ.get("WHISPER_MODEL", "base.en"), device="cpu", compute_type="int8")
             while True:
                 audio = self._segments.get()
-                segments, _ = model.transcribe(audio, language="en", beam_size=1)
-                text = " ".join(s.text for s in segments).strip()
+                try:
+                    if self._model is None:
+                        self.load_whisper()
+                    segments, _ = self._model.transcribe(audio, language="en", beam_size=1)
+                    text = " ".join(s.text for s in segments).strip()
+                except Exception as error:  # noqa: BLE001 - keep listening
+                    print(f"[voice] transcription failed: {error}")
+                    continue
                 if text:
                     self._heard.put(text)
 

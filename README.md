@@ -143,7 +143,9 @@ join the room from a browser to hear "Task 1 unplug done", "All tasks done. Call
 ### Run it
 
 ```bash
-# on the station, window 1: Dream's agent plus camera/arm routes (instead of `dreamcli robot up`)
+# on the station, window 1: Dream's agent plus camera/arm routes (instead of `dreamcli robot up`).
+# Needs ~/.dreamlabs/station.yaml from `dreamcli setup` (check: ls ~/.dreamlabs/). dreamcli itself is in this repo's
+# env on z1: `source ~/physical-ai-hack/.venv/bin/activate` (no ~/dream-env there).
 uv sync --group convert --group judge --group livekit
 uv run --group convert station-plus --config ~/.dreamlabs/station.yaml
 # window 2 (ANTHROPIC_API_KEY in .env)

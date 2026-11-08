@@ -72,7 +72,7 @@ class ClaudeJudge:
         content.append({"type": "text", "text": f"Task the robot was given: {step.prompt!r}.\n{step.question}"})
         try:
             response = self.client.messages.create(
-                model=self.model, max_tokens=2000, system=SYSTEM,
+                model=self.model, max_tokens=8000, system=SYSTEM,  # thinking counts toward it
                 messages=[{"role": "user", "content": content}],
                 output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": SCHEMA}},
             )
@@ -136,6 +136,7 @@ class VoiceJudge:
         self.announcer, self.timeout_s = announcer, timeout_s
         if announcer.livekit is None:
             raise RuntimeError("the voice judge listens in the LiveKit room: add --livekit")
+        announcer.livekit.load_whisper()  # download/load now, so a failure shows at startup, not mid-match
 
     def check(self, step: Step, images: dict[str, bytes]) -> Verdict:
         t0 = time.monotonic()
