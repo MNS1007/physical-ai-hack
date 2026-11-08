@@ -156,12 +156,10 @@ class Writer:
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
-    def append_dataset(self, source: pathlib.Path, task: str | None = None,
-                       labels: dict[int, str] | None = None) -> list[int]:
+    def append_dataset(self, source: pathlib.Path, task: str | None = None) -> list[int]:
         """Copies every episode of another LeRobot v2.1 dataset of the same layout (e.g. one dhk-collect recorded)
         into this one, renumbered; returns the new indices. Refuses a dataset recorded another way. `task`, when given,
-        replaces every episode's task text. `labels`, when given, maps source episode index to task text, and only those
-        episodes are copied (in source order)."""
+        replaces every episode's task text."""
         info_path = source / "meta" / "info.json"
         if not info_path.exists():
             raise DatasetError(f"{source} is not a LeRobot dataset (no meta/info.json)")
@@ -176,17 +174,11 @@ class Writer:
         tasks = {int(r["task_index"]): r["task"] for r in
                  (json.loads(line) for line in (meta / "tasks.jsonl").read_text().splitlines() if line.strip())}
         added = []
-        if labels is not None:
-            unknown = sorted(set(labels) - {int(r["episode_index"]) for r in episodes})
-            if unknown:
-                raise DatasetError(f"{source} has no episodes {unknown}")
         for row in episodes:
             old = int(row["episode_index"])
-            if labels is not None and old not in labels:
-                continue
             chunk = old // int(info.get("chunks_size", CHUNKS_SIZE))
             table = pq.read_table(source / info["data_path"].format(episode_chunk=chunk, episode_index=old))
-            text = (labels or {}).get(old) or task or (tasks[int(table["task_index"][0].as_py())] if "task_index" in table.column_names
+            text = task or (tasks[int(table["task_index"][0].as_py())] if "task_index" in table.column_names
                             else row["tasks"][0])
             table = table.select(["observation.state", "action", "timestamp", "frame_index"])
             scratch = self._scratch()

@@ -144,8 +144,6 @@ uv run --group convert convert run recs/*.rrd ~/hackathon_data/team-stack \
 - Inputs can mix both formats: `.rrd` files, folders of `.rrd` files, and datasets `dhk-collect` recorded (LeRobot
   v2.1, the kit's Quest teleop). All become one dataset, renumbered; `--task` replaces every episode's task text.
   Example: `convert run ~/hackathon_data/kit-stack ~/recs/vr-stack/ ~/hackathon_data/team-stack --map ...`
-- `--labels labels.yaml` gives each episode of an input dataset its task text, and copies only the episodes listed
-  (leave out test runs). Format: `"pull the USB cable out of the power strip": [2-11, 14]`.
 - Each `.rrd` becomes one episode, appended to the output folder (an existing folder must match).
 - Every stream is sampled latest-at on a 30 fps clock, over the span where all of them are running.
 - A recording missing a stream the mapping needs, or shorter than 1.6 s, is skipped with the reason.
